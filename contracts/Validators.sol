@@ -370,7 +370,7 @@ contract Validators is Params {
         // 更新最后取收益高度
         stakingInfo.lastWithdrawProfitsBlock = block.number;
         // 更新验证者的总收益池
-        validatorInfo[validator].bhpIncoming = validatorInfo[validator].sub(reward);
+        validatorInfo[validator].bhpIncoming = validatorInfo[validator].bhpIncoming.sub(reward);
 
         // send allMoney back to staker
         staker.transfer(allMoney);
@@ -484,8 +484,13 @@ contract Validators is Params {
             return;
         }
 
+        // 先将70%分配给基金会地址
+        uint256 burnBhp = bhp.mul(700).div(1000);
+        address payable burn = payable(BurnAddr);
+        burn.transfer(burnBhp);
+
         // Jailed validator can't get profits.
-        addProfitsToActiveValidatorsByStakePercentExcept(bhp, address(0));
+        addProfitsToActiveValidatorsByStakePercentExcept(bhp.sub(burnBhp), address(0));
 
         emit LogDistributeBlockReward(val, bhp, block.timestamp);
     }

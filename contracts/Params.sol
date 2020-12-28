@@ -11,6 +11,14 @@ contract Params {
     address
         public constant ProposalAddr = 0x000000000000000000000000000000000000F002;
 
+    // 基金会地址
+    address
+        public BurnAddr = 0x94dCb4d5C84c6dA477A7481aC86EC65EA8F8c62A;
+
+    // 管理员地址
+    address
+        public ManagerAddr = 0x0941A01ab7B3A39Ed6f55d6a4907778a3f15E5c9;
+
     // System params
     uint16 public constant MaxValidators = 21;
     // Validator have to wait StakingLockPeriod blocks to withdraw staking
@@ -55,5 +63,18 @@ contract Params {
     modifier onlyProposalContract() {
         require(msg.sender == ProposalAddr, "Proposal contract only");
         _;
+    }
+
+    modifier onlyManagerAddr(){
+        require(msg.sender == ManagerAddr, "Only by manage");
+        _;
+    }
+
+    function setBurnAddr(address addr) external onlyManagerAddr {
+        BurnAddr = addr;
+    }
+
+    function setManager(address addr) external onlyManagerAddr {
+        ManagerAddr = addr;
     }
 }

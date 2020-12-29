@@ -58,17 +58,4 @@ contract Params {
         require(msg.sender == ProposalAddr, "Proposal contract only");
         _;
     }
-
-    modifier onlyManagerAddr(){
-        require(msg.sender == ManagerAddr, "Only by manage");
-        _;
-    }
-
-    function setBurnAddr(address addr) external onlyManagerAddr {
-        BurnAddr = addr;
-    }
-
-    function setManager(address addr) external onlyManagerAddr {
-        ManagerAddr = addr;
-    }
 }

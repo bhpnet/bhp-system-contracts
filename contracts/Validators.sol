@@ -185,7 +185,7 @@ contract Validators is Params {
 
     // 设置给个分配奖励的比例(需要将比例扩大100倍)
     function setRewardDistributionRatio(uint256 _r1, uint256 _r2, uint256 _r3) external onlyByManager {
-        require((r1 + r2 + r3) < r, "The distribution ratio cannot be greater than 100%.");
+        require((_r1 + _r2 + _r3) == r, "The distribution ratio cannot be greater than 100%.");
         r1 = _r1;
         r2 = _r2;
         r3 = _r3;

@@ -8,6 +8,29 @@ import "./library/SafeMath.sol";
 contract Validators is Params {
     using SafeMath for uint256;
 
+
+    // 基金会地址
+    address public foundationAddr;
+    // 质押奖励地址
+    address public stakeAddr;
+    // 管理员地址
+    address public managerAddr;
+
+    // 奖励分配规则
+    // 提供给验证者，收取节点维护费
+    uint256 public r1;
+    // 提供给用户质押收益
+    uint256 public r2;
+    // 提供给基金会
+    uint256 public r3;
+    // 最大比例
+    uint256 public r;
+
+    // 验证者掉线惩罚
+    uint256 public offLinePenalty;
+    // 最大比例
+    uint256  public offLinePenaltyMax;
+
     enum Status {
         // validator not exist, default status
         NotExist,
@@ -30,39 +53,27 @@ contract Validators is Params {
     }
 
     struct Validator {
-        // 验证者状态
+        address payable feeAddr;
         Status status;
-        // 该验证者的总质押
         uint256 coins;
-        // 描述
         Description description;
-        // 质押收益
         uint256 bhpIncoming;
-        // 离线惩罚
-        uint256 totalJailedReward;
+        uint256 offLineNumber;
+        uint256 totalJailedBHP;
+        uint256 lastWithdrawProfitsBlock;
         // Address list of user who has staked for this validator
-        // 质押者列表
         address[] stakers;
     }
 
     struct StakingInfo {
-        // 用户质押数量
         uint256 coins;
-        // 退出状态
+        // unstakeBlock != 0 means that you are unstaking your stake, so you can't
+        // stake or unstake
         uint256 unstakeBlock;
-        // 在验证者，质押列表中的索引
+        // index of the staker list in validator
         uint256 index;
-        // 最后一次获取收益块
-        uint256 lastWithdrawProfitsBlock;
-        // 用户以获取收益
-        uint userRewardPerTokenPaid;
-        // 用户未取收益
-        uint reward;
-        // 验证者离线,被动惩罚
-        uint256 jailedReward;
     }
 
-    // 验证者信息
     mapping(address => Validator) validatorInfo;
     // staker => validator => info
     mapping(address => mapping(address => StakingInfo)) staked;
@@ -74,7 +85,7 @@ contract Validators is Params {
     // total stake of all validators
     uint256 public totalStake;
     // total jailed hb
-    uint256 public totalJailedHB;
+    uint256 public totalJailedBHP;
 
     // System contracts
     Proposal proposal;
@@ -83,15 +94,15 @@ contract Validators is Params {
     enum Operations {Distribute, UpdateValidators}
     // Record the operations is done or not.
     mapping(uint256 => mapping(uint8 => bool)) operationsDone;
-    // 记录每个验证者对应每个区块的token奖励
-    mapping(address => mapping(uint256 => uint256)) blockTokenReward;
 
     event LogCreateValidator(
         address indexed val,
+        address indexed fee,
         uint256 time
     );
     event LogEditValidator(
         address indexed val,
+        address indexed fee,
         uint256 time
     );
     event LogReactive(address indexed val, uint256 time);
@@ -151,6 +162,41 @@ contract Validators is Params {
         _;
     }
 
+    modifier onlyByManager(){
+        require(msg.sender == managerAddr, "Only by Manager");
+        _;
+    }
+
+    // 设置管理员地址
+    function setManagerAddr(address addr) external onlyByManager {
+        require(addr != address(0), "Don't set empty address");
+        managerAddr = addr;
+    }
+
+    // 设置基金会地址
+    function setFoundationAddr(address addr) external onlyByManager {
+        foundationAddr = addr;
+    }
+
+    // 设置质押收益地址
+    function setStakeAddr(address addr) external onlyByManager {
+        stakeAddr = addr;
+    }
+
+    // 设置给个分配奖励的比例(需要将比例扩大100倍)
+    function setRewardDistributionRatio(uint256 _r1, uint256 _r2, uint256 _r3) external onlyByManager {
+        require((r1 + r2 + r3) < r, "The distribution ratio cannot be greater than 100%.");
+        r1 = _r1;
+        r2 = _r2;
+        r3 = _r3;
+    }
+
+    // 设置掉线惩罚
+    function setOffLinePenalty(uint256 penalty) external onlyByManager {
+        require(penalty <= offLinePenaltyMax, "The proportion cannot exceed 100.");
+        offLinePenalty = penalty;
+    }
+
     function initialize(address[] calldata vals) external onlyNotInitialized {
         proposal = Proposal(ProposalAddr);
         punish = Punish(PunishContractAddr);
@@ -164,6 +210,9 @@ contract Validators is Params {
             if (!isTopValidator(vals[i])) {
                 highestValidatorsSet.push(vals[i]);
             }
+            if (validatorInfo[vals[i]].feeAddr == address(0)) {
+                validatorInfo[vals[i]].feeAddr = payable(vals[i]);
+            }
             // Important: NotExist validator can't get profits
             if (validatorInfo[vals[i]].status == Status.NotExist) {
                 validatorInfo[vals[i]].status = Status.Staked;
@@ -171,15 +220,83 @@ contract Validators is Params {
         }
 
         initialized = true;
+
+        foundationAddr = 0x94dCb4d5C84c6dA477A7481aC86EC65EA8F8c62A;
+        stakeAddr = 0x2F32fc7A02D6006d4906540083c225DDff5efdDE;
+        managerAddr = 0x0941A01ab7B3A39Ed6f55d6a4907778a3f15E5c9;
+
+        r1 = 300;
+        r2 = 2700;
+        r3 = 7000;
+        r = 10000;
+
+        offLinePenalty = 2000;
+        offLinePenaltyMax = 10000;
+    }
+
+    // stake for the validator
+    function stake(address validator)
+    external
+    payable
+    onlyInitialized
+    returns (bool)
+    {
+        address payable staker = msg.sender;
+        uint256 staking = msg.value;
+
+        require(
+            validatorInfo[validator].status == Status.Created ||
+            validatorInfo[validator].status == Status.Staked,
+            "Can't stake to a validator in abnormal status"
+        );
+        require(
+            proposal.pass(validator),
+            "The validator you want to stake must be authorized first"
+        );
+        require(
+            staked[staker][validator].unstakeBlock == 0,
+            "Can't stake when you are unstaking"
+        );
+
+        Validator storage valInfo = validatorInfo[validator];
+        // The staked coins of validator must >= MinimalStakingCoin
+        require(
+            valInfo.coins.add(staking) >= MinimalStakingCoin,
+            "Staking coins not enough"
+        );
+
+        // stake at first time to this valiadtor
+        if (staked[staker][validator].coins == 0) {
+            // add staker to validator's record list
+            staked[staker][validator].index = valInfo.stakers.length;
+            valInfo.stakers.push(staker);
+        }
+
+        valInfo.coins = valInfo.coins.add(staking);
+        if (valInfo.status != Status.Staked) {
+            valInfo.status = Status.Staked;
+        }
+        tryAddValidatorToHighestSet(validator, valInfo.coins);
+
+        // record staker's info
+        staked[staker][validator].coins = staked[staker][validator].coins.add(
+            staking
+        );
+        totalStake = totalStake.add(staking);
+
+        emit LogStake(staker, validator, staking, block.timestamp);
+        return true;
     }
 
     function createOrEditValidator(
+        address payable feeAddr,
         string calldata moniker,
         string calldata identity,
         string calldata website,
         string calldata email,
         string calldata details
     ) external onlyInitialized returns (bool) {
+        require(feeAddr != address(0), "Invalid fee address");
         require(
             validateDescription(moniker, identity, website, email, details),
             "Invalid description"
@@ -192,6 +309,10 @@ contract Validators is Params {
             isCreate = true;
         }
 
+        if (validatorInfo[validator].feeAddr != feeAddr) {
+            validatorInfo[validator].feeAddr = feeAddr;
+        }
+
         validatorInfo[validator].description = Description(
             moniker,
             identity,
@@ -201,79 +322,34 @@ contract Validators is Params {
         );
 
         if (isCreate) {
-            emit LogCreateValidator(validator, block.timestamp);
+            emit LogCreateValidator(validator, feeAddr, block.timestamp);
         } else {
-            emit LogEditValidator(validator, block.timestamp);
+            emit LogEditValidator(validator, feeAddr, block.timestamp);
         }
         return true;
     }
 
-    // stake for the validator
-    function stake(address validator)
+    function tryReactive(address validator)
     external
-    payable
+    onlyProposalContract
     onlyInitialized
     returns (bool)
     {
-        address payable staker = msg.sender;
-        uint256 staking = msg.value;
-        StakingInfo storage stakingInfo = staked[staker][validator];
-
-        require(
-            validatorInfo[validator].status == Status.Created ||
-            validatorInfo[validator].status == Status.Staked,
-            "Can't stake to a validator in abnormal status"
-        );
-        require(
-            proposal.pass(validator),
-            "The validator you want to stake must be authorized first"
-        );
-        require(
-            stakingInfo.unstakeBlock == 0,
-            "Can't stake when you are unstaking"
-        );
-
-        Validator storage valInfo = validatorInfo[validator];
-        // The staked coins of validator must >= MinimalStakingCoin
-        require(
-            valInfo.coins.add(staking) >= MinimalStakingCoin,
-            "Staking coins not enough"
-        );
-
-        // stake at first time to this valiadtor
-        if (stakingInfo.coins == 0) {
-            // add staker to validator's record list
-            stakingInfo.index = valInfo.stakers.length;
-            valInfo.stakers.push(staker);
+        // Only update validator status if Unstaked/Jailed
+        if (
+            validatorInfo[validator].status != Status.Unstaked &&
+            validatorInfo[validator].status != Status.Jailed
+        ) {
+            return true;
         }
 
-        valInfo.coins = valInfo.coins.add(staking);
-        if (valInfo.status != Status.Staked) {
-            valInfo.status = Status.Staked;
+        if (validatorInfo[validator].status == Status.Jailed) {
+            require(punish.cleanPunishRecord(validator), "clean failed");
         }
-        tryAddValidatorToHighestSet(validator, valInfo.coins);
+        validatorInfo[validator].status = Status.Created;
 
-        // 如果原先有质押，需要先将reward获取出来
-        uint256 reward;
-        if (stakingInfo.coins > 0) {
-            reward = stakingInfo.coins.mul(
-                getValidatorBlockRangeTokenReward(validator,stakingInfo.lastWithdrawProfitsBlock, block.number)
-            );
-        }
-
-        // record staker's info
-        stakingInfo.coins = stakingInfo.coins.add(staking);
-        // 更新用户的未取收益
-        stakingInfo.reward = stakingInfo.reward.add(reward).sub(stakingInfo.jailedReward);
-        // 更新惩罚奖励
-        stakingInfo.jailedReward = 0;
-        // 更新用户获取收益的高度
-        stakingInfo.lastWithdrawProfitsBlock = block.number;
-
-        totalStake = totalStake.add(staking);
-
-        emit LogStake(staker, validator, staking, block.timestamp);
-        return true;
+        emit LogReactive(validator, block.timestamp);
+        return false;
     }
 
     function unstake(address validator)
@@ -355,125 +431,59 @@ contract Validators is Params {
         stakingInfo.coins = 0;
         stakingInfo.unstakeBlock = 0;
 
-        // 质押奖励
-        uint tokenReward = staking.mul(getValidatorBlockRangeTokenReward(validator,stakingInfo.lastWithdrawProfitsBlock, stakingInfo.unstakeBlock));
-        // 所有奖励，需要减去离线惩罚
-        uint reward = stakingInfo.reward.add(tokenReward).sub(stakingInfo.jailedReward);
-        uint allMoney = staking.add(reward);
-
-        // 更新用户未取存款
-        stakingInfo.reward = 0;
-        // 更新用户以取存款
-        stakingInfo.userRewardPerTokenPaid = reward;
-        // 更新离线惩罚
-        stakingInfo.jailedReward = 0;
-        // 更新最后取收益高度
-        stakingInfo.lastWithdrawProfitsBlock = block.number;
-        // 更新验证者的总收益池
-        validatorInfo[validator].bhpIncoming = validatorInfo[validator].bhpIncoming.sub(reward);
-
-        // send allMoney back to staker
-        staker.transfer(allMoney);
+        // send stake back to staker
+        staker.transfer(staking);
 
         emit LogWithdrawStaking(staker, validator, staking, block.timestamp);
         return true;
     }
 
-    // 收益（不能是unstake状态）
+    // feeAddr can withdraw profits of it's validator
     function withdrawProfits(address validator) external returns (bool) {
-        address payable userAddr = payable(msg.sender);
-        StakingInfo storage userStake = staked[msg.sender][validator];
-
+        address payable feeAddr = payable(msg.sender);
         require(
             validatorInfo[validator].status != Status.NotExist,
             "Validator not exist"
         );
-
-        // 未质押，报错
-        require(userStake.coins != 0, "You don't have any stake");
-        // 不能是unstake状态
         require(
-            userStake.unstakeBlock == 0,
-            "Can't stake when you are unstaking"
+            validatorInfo[validator].feeAddr == feeAddr,
+            "You are not the fee receiver of this validator"
         );
-        // 收取收益不能小于区块范围
         require(
-            userStake.lastWithdrawProfitsBlock +
+            validatorInfo[validator].lastWithdrawProfitsBlock +
             WithdrawProfitPeriod <=
             block.number,
             "You must wait enough blocks to withdraw your profits after latest withdraw of this validator"
         );
+        uint256 hbIncoming = validatorInfo[validator].bhpIncoming;
+        require(hbIncoming > 0, "You don't have any profits");
 
-        // 当前验证者的所有收益
-        uint256 bhpIncoming = validatorInfo[validator].bhpIncoming;
-        require(bhpIncoming > 0, "You don't have any profits");
+        // update info
+        validatorInfo[validator].bhpIncoming = 0;
+        validatorInfo[validator].lastWithdrawProfitsBlock = block.number;
 
-        uint totalToken = getValidatorBlockRangeTokenReward(validator,userStake.lastWithdrawProfitsBlock, block.number);
-        uint reward = userStake.reward.add(userStake.coins.mul(totalToken)).sub(userStake.jailedReward);
-
-        // 清空数据
-        userStake.reward = 0;
-        userStake.jailedReward = 0;
-
-        // 如果收益大于验证者的总收益，报错
-        require(bhpIncoming.sub(reward) > 0, "You don't have any profits");
-
-        // 更新验证者剩余奖励
-        validatorInfo[validator].bhpIncoming = validatorInfo[validator].bhpIncoming.sub(reward);
-        // 更新用户以获取的收益
-        userStake.userRewardPerTokenPaid = userStake.userRewardPerTokenPaid.add(reward);
-        // 更新最后获取收益区块
-        userStake.lastWithdrawProfitsBlock = block.number;
-
-        // 发送奖励
-        if (reward > 0) {
-            userAddr.transfer(reward);
+        // send profits to fee address
+        if (hbIncoming > 0) {
+            feeAddr.transfer(hbIncoming);
         }
 
         emit LogWithdrawProfits(
             validator,
-            userAddr,
-            reward,
+            feeAddr,
+            hbIncoming,
             block.timestamp
         );
 
         return true;
     }
 
-    function tryReactive(address validator) external onlyProposalContract onlyInitialized returns (bool){
-        // Only update validator status if Unstaked/Jailed
-        if (
-            validatorInfo[validator].status != Status.Unstaked &&
-            validatorInfo[validator].status != Status.Jailed
-        ) {
-            return true;
-        }
-
-        if (validatorInfo[validator].status == Status.Jailed) {
-            require(punish.cleanPunishRecord(validator), "clean failed");
-        }
-        validatorInfo[validator].status = Status.Created;
-        emit LogReactive(validator, block.timestamp);
-
-        return false;
-    }
-
-    // 获取范围内的每个token的总收益
-    function getValidatorBlockRangeTokenReward(address val,uint256 startBlockNumber, uint256 endBlockNumber) private returns (uint256){
-        uint256 totalToken;
-        for (uint i = startBlockNumber + 1; i <= endBlockNumber; i++) {
-            totalToken = totalToken.add(blockTokenReward[val][i]);
-        }
-        return totalToken;
-    }
-
     // distributeBlockReward distributes block reward to all active validators
     function distributeBlockReward()
-    external
-    payable
-    onlyMiner
-    onlyNotRewarded
-    onlyInitialized
+        external
+        payable
+        onlyMiner
+        onlyNotRewarded
+        onlyInitialized
     {
         operationsDone[block.number][uint8(Operations.Distribute)] = true;
         address val = msg.sender;
@@ -484,23 +494,34 @@ contract Validators is Params {
             return;
         }
 
-        // 先将70%分配给基金会地址
-        uint256 burnBhp = bhp.mul(700).div(1000);
-        address payable burn = payable(BurnAddr);
-        burn.transfer(burnBhp);
+        if (bhp == 0) {
+            return;
+        }
 
+        // 需要先将基金会奖励和质押奖励分配
+        // 基金会
+        address payable foundationRewardAddr = payable(foundationAddr);
+        uint256 foundationReward = bhp.mul(r3).div(r);
+        foundationRewardAddr.transfer(foundationReward);
+        // 质押奖励
+        address payable stakeRewardAddr = payable(stakeAddr);
+        uint stakeReward = bhp.mul(r2).div(r);
+        stakeRewardAddr.transfer(stakeReward);
+
+        // 剩余的为验证者节点维护费
+        bhp = bhp.sub(foundationReward).sub(stakeReward);
         // Jailed validator can't get profits.
-        addProfitsToActiveValidatorsByStakePercentExcept(bhp.sub(burnBhp), address(0));
+        addProfitsToActiveValidatorsByStakePercentExcept(bhp, address(0));
 
         emit LogDistributeBlockReward(val, bhp, block.timestamp);
     }
 
     function updateActiveValidatorSet(address[] memory newSet, uint256 epoch)
-    public
-    onlyMiner
-    onlyNotUpdated
-    onlyInitialized
-    onlyBlockEpoch(epoch)
+        public
+        onlyMiner
+        onlyNotUpdated
+        onlyInitialized
+        onlyBlockEpoch(epoch)
     {
         operationsDone[block.number][uint8(Operations.UpdateValidators)] = true;
         require(newSet.length > 0, "Validator set empty!");
@@ -531,7 +552,6 @@ contract Validators is Params {
         tryRemoveValidatorIncoming(val);
     }
 
-    // 获取验证者描述
     function getValidatorDescription(address val)
     public
     view
@@ -554,12 +574,13 @@ contract Validators is Params {
         );
     }
 
-    // 获取验证者信息
     function getValidatorInfo(address val)
     public
     view
     returns (
+        address payable,
         Status,
+        uint256,
         uint256,
         uint256,
         uint256,
@@ -569,15 +590,16 @@ contract Validators is Params {
         Validator memory v = validatorInfo[val];
 
         return (
+        v.feeAddr,
         v.status,
         v.coins,
         v.bhpIncoming,
-        v.totalJailedReward,
+        v.totalJailedBHP,
+        v.lastWithdrawProfitsBlock,
         v.stakers
         );
     }
 
-    // 获取质押者信息
     function getStakingInfo(address staker, address val)
     public
     view
@@ -594,12 +616,10 @@ contract Validators is Params {
         );
     }
 
-    // 获取所有验证者列表
     function getActiveValidators() public view returns (address[] memory) {
         return currentValidatorSet;
     }
 
-    // 获取当前总质押量
     function getTotalStakeOfActiveValidators()
     public
     view
@@ -608,7 +628,6 @@ contract Validators is Params {
         return getTotalStakeOfActiveValidatorsExcept(address(0));
     }
 
-    // 获取除了当前验证者状态为禁用，以及指定验证者地址以外的所有质押总量
     function getTotalStakeOfActiveValidatorsExcept(address val)
     private
     view
@@ -627,7 +646,6 @@ contract Validators is Params {
         return (total, len);
     }
 
-    // 是否为验证者
     function isActiveValidator(address who) public view returns (bool) {
         for (uint256 i = 0; i < currentValidatorSet.length; i++) {
             if (currentValidatorSet[i] == who) {
@@ -638,7 +656,6 @@ contract Validators is Params {
         return false;
     }
 
-    // 是否为有效验证者
     function isTopValidator(address who) public view returns (bool) {
         for (uint256 i = 0; i < highestValidatorsSet.length; i++) {
             if (highestValidatorsSet[i] == who) {
@@ -649,12 +666,10 @@ contract Validators is Params {
         return false;
     }
 
-    // 获取当前有效验证者，列表
     function getTopValidators() public view returns (address[] memory) {
         return highestValidatorsSet;
     }
 
-    // 验证，验证者信息是否符合要求
     function validateDescription(
         string memory moniker,
         string memory identity,
@@ -671,20 +686,16 @@ contract Validators is Params {
         return true;
     }
 
-    // 验证指定验证者是否在前21个
-    // 如果不在则加入，如果存在则返回
     function tryAddValidatorToHighestSet(address val, uint256 staking)
     internal
     {
         // do nothing if you are already in highestValidatorsSet set
-        // 如果验证者已在前21，则返回
         for (uint256 i = 0; i < highestValidatorsSet.length; i++) {
             if (highestValidatorsSet[i] == val) {
                 return;
             }
         }
 
-        // 还未达到最大
         if (highestValidatorsSet.length < MaxValidators) {
             highestValidatorsSet.push(val);
             emit LogAddToTopValidators(val, block.timestamp);
@@ -715,8 +726,6 @@ contract Validators is Params {
         highestValidatorsSet[lowestIndex] = val;
     }
 
-    // 移除一个验证者的奖励，并按质押比例分配到各有效验证者
-    // 处罚比例
     function tryRemoveValidatorIncoming(address val) private {
         // do nothing if validator not exist(impossible)
         if (
@@ -726,33 +735,28 @@ contract Validators is Params {
             return;
         }
 
+        // 记录退出次数
+        validatorInfo[val].offLineNumber = validatorInfo[val].offLineNumber + 1;
         uint256 bhp = validatorInfo[val].bhpIncoming;
-        // 处罚比例(暂定为5%)
-        bhp = bhp.mul(50).div(1000);
-        // 计算平坦到每个用户的比例
-        uint256 jail = bhp.div(validatorInfo[val].coins);
-        for (uint256 i = 0; i < validatorInfo[val].stakers.length; i++) {
-            // 获取质押者信息
-            StakingInfo storage staker = staked[validatorInfo[val].stakers[i]][val];
-            // 需要支付的处罚金额
-            staker.jailedReward = staker.jailedReward.add(staker.coins.mul(jail));
-        }
-
         if (bhp > 0) {
+            // 按照惩罚比例，惩罚
+            bhp = bhp.mul(offLinePenalty).div(offLinePenaltyMax);
+
             addProfitsToActiveValidatorsByStakePercentExcept(bhp, val);
             // for display purpose
-            totalJailedHB = totalJailedHB.add(bhp);
-            validatorInfo[val].totalJailedReward = validatorInfo[val]
-            .totalJailedReward
-            .add(bhp);
-
-            validatorInfo[val].bhpIncoming = validatorInfo[val].bhpIncoming.sub(bhp);
+            totalJailedBHP = totalJailedBHP.add(bhp);
+            validatorInfo[val].bhpIncoming = validatorInfo[val]
+                .bhpIncoming
+                .sub(bhp);
+            validatorInfo[val].totalJailedBHP = validatorInfo[val]
+                .totalJailedBHP
+                .add(bhp);
         }
 
         emit LogRemoveValidatorIncoming(val, bhp, block.timestamp);
     }
 
-    // 通过股权百分比为所有验证者增加利润，但受惩罚的验证者或监禁的验证者除外
+    // add profits to all validators by stake percent except the punished validator or jailed validator
     function addProfitsToActiveValidatorsByStakePercentExcept(
         uint256 totalReward,
         address punishedVal
@@ -761,15 +765,12 @@ contract Validators is Params {
             return;
         }
 
-        // 当前需要分配奖励的总质押量
         uint256 totalRewardStake;
-        // 需要分奖励的验证者数量
         uint256 rewardValsLen;
         (
         totalRewardStake,
         rewardValsLen
         ) = getTotalStakeOfActiveValidatorsExcept(punishedVal);
-
 
         if (rewardValsLen == 0) {
             return;
@@ -789,29 +790,22 @@ contract Validators is Params {
                     validatorInfo[val].status != Status.Jailed &&
                     val != punishedVal
                 ) {
-                    // 如果是在创世节点，还没有任何节点加入，直接把钱转给创世节点
-                    address payable validator = payable(val);
-                    validator.transfer(per);
+                    validatorInfo[val].bhpIncoming = validatorInfo[val]
+                    .bhpIncoming
+                    .add(per);
+
                     last = val;
                 }
             }
 
             if (remain > 0 && last != address(0)) {
-                address payable validator = payable(last);
-                validator.transfer(remain);
+                validatorInfo[last].bhpIncoming = validatorInfo[last]
+                .bhpIncoming
+                .add(remain);
             }
             return;
         }
 
-
-        // 先将10%给验证者，90%给质押用户
-        uint256 verifierReward = totalReward.mul(100).div(1000);
-        totalReward = totalReward.sub(verifierReward);
-        // 获得每个验证者的额外收益
-        verifierReward = verifierReward.mul(1).div(currentValidatorSet.length);
-
-        // 计算当前区块的每个token的收益(如果有验证者被处罚，处罚奖励也会被添加到每个区块奖励中来)
-        uint256 tokenReward = totalReward.div(totalRewardStake);
         uint256 added;
         for (uint256 i = 0; i < currentValidatorSet.length; i++) {
             address val = currentValidatorSet[i];
@@ -821,17 +815,11 @@ contract Validators is Params {
                 uint256 reward = totalReward.mul(validatorInfo[val].coins).div(
                     totalRewardStake
                 );
-
                 added = added.add(reward);
                 last = val;
                 validatorInfo[val].bhpIncoming = validatorInfo[val]
                 .bhpIncoming
                 .add(reward);
-
-                // 添加额外收益给验证者
-                staked[val][val].reward = verifierReward.add(staked[val][val].reward);
-                // 记录每个验证者对于区块的奖励
-                blockTokenReward[val][block.number] = blockTokenReward[val][block.number].add(tokenReward);
             }
         }
 
@@ -843,7 +831,6 @@ contract Validators is Params {
         }
     }
 
-    // 尝试监禁验证者
     function tryJailValidator(address val) private {
         // do nothing if validator not exist
         if (validatorInfo[val].status == Status.NotExist) {
@@ -857,7 +844,6 @@ contract Validators is Params {
         tryRemoveValidatorInHighestSet(val);
     }
 
-    // 尝试移除一个前21的验证者
     function tryRemoveValidatorInHighestSet(address val) private {
         for (
             uint256 i = 0;

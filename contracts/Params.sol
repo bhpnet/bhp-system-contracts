@@ -11,20 +11,14 @@ contract Params {
     address
         public constant ProposalAddr = 0x000000000000000000000000000000000000F002;
 
-    // 基金会地址
-    address
-        public BurnAddr = 0x94dCb4d5C84c6dA477A7481aC86EC65EA8F8c62A;
-
-    // 管理员地址
-    address
-        public ManagerAddr = 0x0941A01ab7B3A39Ed6f55d6a4907778a3f15E5c9;
-
     // System params
     uint16 public constant MaxValidators = 21;
     // Validator have to wait StakingLockPeriod blocks to withdraw staking
-    uint64 public constant StakingLockPeriod = 86400;
+    // 3day
+    uint64 public constant StakingLockPeriod = 17280;
     // Validator have to wait WithdrawProfitPeriod blocks to withdraw his profits
-    uint64 public constant WithdrawProfitPeriod = 28800;
+    // 1day
+    uint64 public constant WithdrawProfitPeriod = 5760;
     uint256 public constant MinimalStakingCoin = 32 ether;
 
     modifier onlyMiner() {

@@ -77,7 +77,7 @@ contract StakeTokenReward {
             if ((address(this) == address(validator.stakeAddr())) && (lastBlockNumber <= block.number)) {
                 // 计算当前的收益
                 cumulativeRewardPerStoredToken = cumulativeRewardPerStoredToken.add(
-                    getBlockNumberReward(lastBlockNumber).div(totalStake)
+                    getBlockNumberReward(lastBlockNumber).mul(1e18).div(totalStake)
                 );
                 // 更新收益
                 lastBlockNumber = block.number;
@@ -113,7 +113,7 @@ contract StakeTokenReward {
             // 计算出奖励
             uint256 reward = staker.coins.mul(
                 cumulativeRewardPerStoredToken.sub(staker.userCumulativeRevenuePerToken)
-            );
+            ).div(1e18);
             staker.reward = staker.reward.add(reward);
             // 更新用户每个token累计收益
             staker.userCumulativeRevenuePerToken = cumulativeRewardPerStoredToken;
@@ -135,7 +135,7 @@ contract StakeTokenReward {
         if (address(this) == address(validator.stakeAddr())) {
             // 计算当前的收益
             tokenByReward = cumulativeRewardPerStoredToken.add(
-                getBlockNumberReward(lastBlockNumber).div(totalStake)
+                getBlockNumberReward(lastBlockNumber).mul(1e18).div(totalStake)
             );
         } else {
             tokenByReward = cumulativeRewardPerStoredToken;
@@ -144,6 +144,7 @@ contract StakeTokenReward {
         return staker.coins.mul(
             tokenByReward.sub(staker.userCumulativeRevenuePerToken)
         )
+        .div(1e18)
         .add(staker.reward);
     }
 
@@ -154,7 +155,7 @@ contract StakeTokenReward {
 
         uint256 reward = staker.coins.mul(
             cumulativeRewardPerStoredToken.sub(staker.userCumulativeRevenuePerToken)
-        );
+        ).div(1e18);
         reward = reward.add(staker.reward);
 
         address payable stakerAddr = payable(msg.sender);
@@ -181,7 +182,7 @@ contract StakeTokenReward {
         // 计算收益
         uint256 reward = staker.coins.mul(
             cumulativeRewardPerStoredToken.sub(staker.userCumulativeRevenuePerToken)
-        );
+        ).div(1e18);
         reward = reward.add(staker.reward);
 
         staker.reward = 0;

@@ -170,7 +170,7 @@ contract StakeTokenReward {
     }
 
     // 取款
-    function withdraw(uint256 amount) external checkStart updateCumulativeRewardPerStoredToken {
+    function _withdraw(uint256 amount) internal checkStart updateCumulativeRewardPerStoredToken {
         stakingInfo storage staker = staked[msg.sender];
 
         require(staker.coins > 0, "You need to stake first");
@@ -198,9 +198,13 @@ contract StakeTokenReward {
         emit Withdrawn(msg.sender, amount, reward);
     }
 
+    function withdraw(uint256 amount) external {
+        _withdraw(amount);
+    }
+
     // 退出
     function exit() external {
-        this.withdraw(staked[msg.sender].coins);
+        _withdraw(staked[msg.sender].coins);
     }
 
     // 获取最后一次更新区块到当前区块的质押总收益

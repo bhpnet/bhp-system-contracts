@@ -3,7 +3,7 @@ pragma solidity >=0.6.0 <0.8.0;
 import "./library/SafeMath.sol";
 
 interface IValidators {
-    function stakeRewardByBlockNumber(uint256) external view returns (uint256);
+    function getStakeRewardByStartAndEnd(uint256,uint256) external view returns (uint256);
 
     function stakeAddr() external view returns (address);
 }
@@ -209,11 +209,7 @@ contract StakeTokenReward {
 
     // 获取最后一次更新区块到当前区块的质押总收益
     function getBlockNumberReward(uint256 _lastBlockNumber) private view returns (uint256){
-        uint reward;
-        for (uint i = _lastBlockNumber + 1; i <= block.number; i++) {
-            reward = reward.add(validator.stakeRewardByBlockNumber(i));
-        }
-        return reward;
+            return validator.getStakeRewardByStartAndEnd(_lastBlockNumber,block.number);
     }
 
     // 获取质押者信息

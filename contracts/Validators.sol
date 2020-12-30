@@ -199,6 +199,14 @@ contract Validators is Params {
         offLinePenalty = penalty;
     }
 
+    function getStakeRewardByStartAndEnd(uint256 start,uint256 end) external view returns(uint256){
+        uint256 stakeReward;
+        for(uint256 i = start;i < end;i++){
+            stakeReward = stakeReward.add(stakeRewardByBlockNumber[i]);
+        }
+        return stakeReward;
+    }
+
     function initialize(address[] calldata vals) external onlyNotInitialized {
         proposal = Proposal(ProposalAddr);
         punish = Punish(PunishContractAddr);

@@ -74,6 +74,8 @@ contract Validators is Params {
         uint256 index;
     }
 
+    // 每个区块，staking的奖励
+    mapping(uint256 => uint256) public stakeRewardByBlockNumber;
     mapping(address => Validator) validatorInfo;
     // staker => validator => info
     mapping(address => mapping(address => StakingInfo)) staked;
@@ -479,11 +481,11 @@ contract Validators is Params {
 
     // distributeBlockReward distributes block reward to all active validators
     function distributeBlockReward()
-        external
-        payable
-        onlyMiner
-        onlyNotRewarded
-        onlyInitialized
+    external
+    payable
+    onlyMiner
+    onlyNotRewarded
+    onlyInitialized
     {
         operationsDone[block.number][uint8(Operations.Distribute)] = true;
         address val = msg.sender;
@@ -506,6 +508,8 @@ contract Validators is Params {
         // 质押奖励
         address payable stakeRewardAddr = payable(stakeAddr);
         uint stakeReward = bhp.mul(r2).div(r);
+        // 保存每个区块，质押获得的收益
+        stakeRewardByBlockNumber[block.number] = stakeReward;
         stakeRewardAddr.transfer(stakeReward);
 
         // 剩余的为验证者节点维护费
@@ -517,11 +521,11 @@ contract Validators is Params {
     }
 
     function updateActiveValidatorSet(address[] memory newSet, uint256 epoch)
-        public
-        onlyMiner
-        onlyNotUpdated
-        onlyInitialized
-        onlyBlockEpoch(epoch)
+    public
+    onlyMiner
+    onlyNotUpdated
+    onlyInitialized
+    onlyBlockEpoch(epoch)
     {
         operationsDone[block.number][uint8(Operations.UpdateValidators)] = true;
         require(newSet.length > 0, "Validator set empty!");
@@ -584,6 +588,7 @@ contract Validators is Params {
         uint256,
         uint256,
         uint256,
+        uint256,
         address[] memory
     )
     {
@@ -595,6 +600,7 @@ contract Validators is Params {
         v.coins,
         v.bhpIncoming,
         v.totalJailedBHP,
+        v.offLineNumber,
         v.lastWithdrawProfitsBlock,
         v.stakers
         );
@@ -746,11 +752,11 @@ contract Validators is Params {
             // for display purpose
             totalJailedBHP = totalJailedBHP.add(bhp);
             validatorInfo[val].bhpIncoming = validatorInfo[val]
-                .bhpIncoming
-                .sub(bhp);
+            .bhpIncoming
+            .sub(bhp);
             validatorInfo[val].totalJailedBHP = validatorInfo[val]
-                .totalJailedBHP
-                .add(bhp);
+            .totalJailedBHP
+            .add(bhp);
         }
 
         emit LogRemoveValidatorIncoming(val, bhp, block.timestamp);

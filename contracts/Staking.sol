@@ -68,8 +68,6 @@ contract StakeTokenReward {
     }
 
     modifier updateCumulativeRewardPerStoredToken(){
-        require(totalStake > 0,"no stake");
-
         // 如果validators设置的地址是本合约地址
         // 并且最后一次获取奖励的要小于当前高度
         // 可以更新奖励

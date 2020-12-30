@@ -75,7 +75,7 @@ contract Validators is Params {
     }
 
     // 每个区块，staking的奖励
-    mapping(uint256 => uint256) public stakeRewardByBlockNumber;
+    mapping(uint256 => uint256) stakeRewardByBlockNumber;
     mapping(address => Validator) validatorInfo;
     // staker => validator => info
     mapping(address => mapping(address => StakingInfo)) staked;
@@ -200,6 +200,7 @@ contract Validators is Params {
     }
 
     function getStakeRewardByStartAndEnd(uint256 start,uint256 end) external view returns(uint256){
+        require(address(stakeAddr) == address(msg.sender),"Only by stakeAddr");
         uint256 stakeReward;
         for(uint256 i = start;i < end;i++){
             stakeReward = stakeReward.add(stakeRewardByBlockNumber[i]);

@@ -11,25 +11,16 @@ contract Validators is Params {
 
     // 基金会地址
     address public foundationAddr;
-    // 质押奖励地址
-    address public stakeAddr;
     // 管理员地址
     address public managerAddr;
 
     // 奖励分配规则
     // 提供给验证者，收取节点维护费
-    uint256 public r1;
-    // 提供给用户质押收益
-    uint256 public r2;
-    // 提供给基金会
-    uint256 public r3;
-    // 最大比例
-    uint256 public r;
-
+    uint256 public fee;
     // 验证者掉线惩罚
     uint256 public offLinePenalty;
     // 最大比例
-    uint256  public offLinePenaltyMax;
+    uint256 public max;
 
     enum Status {
         // validator not exist, default status
@@ -74,8 +65,6 @@ contract Validators is Params {
         uint256 index;
     }
 
-    // 每个区块，staking的奖励
-    mapping(uint256 => uint256) stakeRewardByBlockNumber;
     mapping(address => Validator) validatorInfo;
     // staker => validator => info
     mapping(address => mapping(address => StakingInfo)) staked;
@@ -179,34 +168,18 @@ contract Validators is Params {
     function setFoundationAddr(address addr) external onlyByManager {
         foundationAddr = addr;
     }
-
-    // 设置质押收益地址
-    function setStakeAddr(address addr) external onlyByManager {
-        stakeAddr = addr;
-    }
-
     // 设置给个分配奖励的比例(需要将比例扩大100倍)
-    function setRewardDistributionRatio(uint256 _r1, uint256 _r2, uint256 _r3) external onlyByManager {
-        require((_r1 + _r2 + _r3) == r, "The distribution ratio cannot be greater than 100%.");
-        r1 = _r1;
-        r2 = _r2;
-        r3 = _r3;
+    function setRewardDistributionRatio(uint256 _fee) external onlyByManager {
+        require(_fee <= max , "The distribution ratio cannot be greater than 100%.");
+        fee = _fee;
     }
 
     // 设置掉线惩罚
-    function setOffLinePenalty(uint256 penalty) external onlyByManager {
-        require(penalty <= offLinePenaltyMax, "The proportion cannot exceed 100.");
-        offLinePenalty = penalty;
+    function setOffLinePenalty(uint256 _offLinePenalty) external onlyByManager {
+        require(_offLinePenalty<= max, "The proportion cannot exceed 100.");
+        offLinePenalty = _offLinePenalty;
     }
 
-    function getStakeRewardByStartAndEnd(uint256 start,uint256 end) external view returns(uint256){
-        require(address(stakeAddr) == address(msg.sender),"Only by stakeAddr");
-        uint256 stakeReward;
-        for(uint256 i = start;i < end;i++){
-            stakeReward = stakeReward.add(stakeRewardByBlockNumber[i]);
-        }
-        return stakeReward;
-    }
 
     function initialize(address[] calldata vals) external onlyNotInitialized {
         proposal = Proposal(ProposalAddr);
@@ -233,16 +206,11 @@ contract Validators is Params {
         initialized = true;
 
         foundationAddr = 0x94dCb4d5C84c6dA477A7481aC86EC65EA8F8c62A;
-        stakeAddr = 0x2F32fc7A02D6006d4906540083c225DDff5efdDE;
         managerAddr = 0x0941A01ab7B3A39Ed6f55d6a4907778a3f15E5c9;
 
-        r1 = 300;
-        r2 = 2700;
-        r3 = 7000;
-        r = 10000;
-
+        fee = 300;
         offLinePenalty = 2000;
-        offLinePenaltyMax = 10000;
+        max = 10000;
     }
 
     // stake for the validator
@@ -505,27 +473,18 @@ contract Validators is Params {
             return;
         }
 
-        if (bhp == 0) {
-            return;
+        if (bhp > 0) {
+            // 需要先将基金会奖励和质押奖励分配
+            // 基金会
+            address payable foundationRewardAddr = payable(foundationAddr);
+            uint256 foundationReward = bhp.mul(max-fee).div(max);
+            foundationRewardAddr.transfer(foundationReward);
+
+            // 剩余的为验证者节点维护费
+            bhp = bhp.sub(foundationReward);
+            // Jailed validator can't get profits.
+            addProfitsToActiveValidatorsByStakePercentExcept(bhp, address(0));
         }
-
-        // 需要先将基金会奖励和质押奖励分配
-        // 基金会
-        address payable foundationRewardAddr = payable(foundationAddr);
-        uint256 foundationReward = bhp.mul(r3).div(r);
-        foundationRewardAddr.transfer(foundationReward);
-        // 质押奖励
-        address payable stakeRewardAddr = payable(stakeAddr);
-        uint stakeReward = bhp.mul(r2).div(r);
-        // 保存每个区块，质押获得的收益
-        stakeRewardByBlockNumber[block.number] = stakeReward;
-        stakeRewardAddr.transfer(stakeReward);
-
-        // 剩余的为验证者节点维护费
-        bhp = bhp.sub(foundationReward).sub(stakeReward);
-        // Jailed validator can't get profits.
-        addProfitsToActiveValidatorsByStakePercentExcept(bhp, address(0));
-
         emit LogDistributeBlockReward(val, bhp, block.timestamp);
     }
 
@@ -755,7 +714,7 @@ contract Validators is Params {
         uint256 bhp = validatorInfo[val].bhpIncoming;
         if (bhp > 0) {
             // 按照惩罚比例，惩罚
-            bhp = bhp.mul(offLinePenalty).div(offLinePenaltyMax);
+            bhp = bhp.mul(offLinePenalty).div(max);
 
             addProfitsToActiveValidatorsByStakePercentExcept(bhp, val);
             // for display purpose

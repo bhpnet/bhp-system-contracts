@@ -208,7 +208,7 @@ contract Validators is Params {
         foundationAddr = 0x94dCb4d5C84c6dA477A7481aC86EC65EA8F8c62A;
         managerAddr = 0x0941A01ab7B3A39Ed6f55d6a4907778a3f15E5c9;
 
-        fee = 300;
+        fee = 500;
         offLinePenalty = 2000;
         max = 10000;
     }

@@ -15,6 +15,8 @@ contract Punish is Params {
     }
 
     Validators validators;
+    // 管理员地址
+    address public managerAddr;
 
     mapping(address => PunishRecord) punishRecords;
     address[] public punishValidators;
@@ -35,6 +37,32 @@ contract Punish is Params {
         _;
     }
 
+    modifier onlyByManager(){
+        require(msg.sender == managerAddr, "Only by Manager");
+        _;
+    }
+
+    // 设置管理员地址
+    function setManagerAddr(address addr) external onlyByManager {
+        require(addr != address(0), "Don't set empty address");
+        managerAddr = addr;
+    }
+
+    // 设置掉线容忍epoch周期的阀值（扣除一定比例的收入）
+    function setPunishThreshold(uint256 _threshold) external onlyByManager {
+        punishThreshold = _threshold;
+    }
+
+    // 设置移除验证者列表的epoch周期的阀值
+    function setRemoveThreshold(uint256 _threshold) external onlyByManager {
+        removeThreshold = _threshold;
+    }
+
+    // 验证者出错清除比例,如果出错removeThreshold / decreaseRate，则减除removeThreshold / decreaseRate
+    function setDecreaseRate(uint256 _rate) external onlyByManager {
+        decreaseRate = _rate;
+    }
+
     function initialize() external onlyNotInitialized {
         validators = Validators(ValidatorContractAddr);
         punishThreshold = 24;
@@ -42,6 +70,7 @@ contract Punish is Params {
         decreaseRate = 24;
 
         initialized = true;
+        managerAddr = 0x75990C4e397C0f83bB5C22e2d57ce44B8267A7B2;
     }
 
     function punish(address val)

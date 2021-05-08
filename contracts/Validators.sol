@@ -8,6 +8,13 @@ import "./library/SafeMath.sol";
 contract Validators is Params {
     using SafeMath for uint256;
 
+    // Validator have to wait StakingLockPeriod blocks to withdraw staking
+    // 3day
+    uint64 public StakingLockPeriod;
+    // Validator have to wait WithdrawProfitPeriod blocks to withdraw his profits
+    // 1day
+    uint64 public WithdrawProfitPeriod;
+    uint256 public MinimalStakingCoin;
 
     // 基金会地址
     address public foundationAddr;
@@ -181,6 +188,21 @@ contract Validators is Params {
     }
 
 
+    // 设置质押解锁周期
+    function setStakingLockPeriod(uint64 _period) external onlyByManager {
+        StakingLockPeriod = _period;
+    }
+
+    // 设置利息提取间隔周期
+    function setWithdrawProfitPeriod(uint64 _period) external onlyByManager {
+        WithdrawProfitPeriod = _period;
+    }
+
+    // 设置最小质押额度
+    function setMinimalStakingCoin(uint256 _coinNumber) external onlyByManager {
+        MinimalStakingCoin = _coinNumber;
+    }
+
     function initialize(address[] calldata vals) external onlyNotInitialized {
         proposal = Proposal(ProposalAddr);
         punish = Punish(PunishContractAddr);
@@ -211,6 +233,13 @@ contract Validators is Params {
         fee = 500;
         offLinePenalty = 2000;
         max = 10000;
+
+        // 3day
+        StakingLockPeriod = 17280;
+        // 1day
+        WithdrawProfitPeriod = 5760;
+        MinimalStakingCoin = 32 ether;
+
     }
 
     // stake for the validator

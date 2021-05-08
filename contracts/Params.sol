@@ -13,13 +13,6 @@ contract Params {
 
     // System params
     uint16 public constant MaxValidators = 21;
-    // Validator have to wait StakingLockPeriod blocks to withdraw staking
-    // 3day
-    uint64 public constant StakingLockPeriod = 17280;
-    // Validator have to wait WithdrawProfitPeriod blocks to withdraw his profits
-    // 1day
-    uint64 public constant WithdrawProfitPeriod = 5760;
-    uint256 public constant MinimalStakingCoin = 32 ether;
 
     modifier onlyMiner() {
         require(msg.sender == block.coinbase, "Miner only");

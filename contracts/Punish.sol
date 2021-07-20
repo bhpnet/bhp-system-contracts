@@ -15,7 +15,7 @@ contract Punish is Params {
     }
 
     Validators validators;
-    // 管理员地址
+    // manager address
     address public managerAddr;
 
     mapping(address => PunishRecord) punishRecords;
@@ -42,23 +42,24 @@ contract Punish is Params {
         _;
     }
 
-    // 设置管理员地址
+    // Set administrator address
     function setManagerAddr(address addr) external onlyByManager {
         require(addr != address(0), "Don't set empty address");
         managerAddr = addr;
     }
 
-    // 设置掉线容忍epoch周期的阀值（扣除一定比例的收入）
+    // Set the threshold value of dropout tolerance epoch cycle (deducting a certain proportion of income)
     function setPunishThreshold(uint256 _threshold) external onlyByManager {
         punishThreshold = _threshold;
     }
 
-    // 设置移除验证者列表的epoch周期的阀值
+    // Set the threshold for removing the epoch cycle from the verifier list
     function setRemoveThreshold(uint256 _threshold) external onlyByManager {
         removeThreshold = _threshold;
     }
 
-    // 验证者出错清除比例,如果出错removeThreshold / decreaseRate，则减除removeThreshold / decreaseRate
+    // If there is an error in removethreshold / decreaserate,
+    // the removethreshold / decreaserate will be subtracted
     function setDecreaseRate(uint256 _rate) external onlyByManager {
         decreaseRate = _rate;
     }

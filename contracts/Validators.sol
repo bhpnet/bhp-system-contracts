@@ -16,17 +16,15 @@ contract Validators is Params {
     uint64 public WithdrawProfitPeriod;
     uint256 public MinimalStakingCoin;
 
-    // 基金会地址
     address public foundationAddr;
-    // 管理员地址
     address public managerAddr;
 
-    // 奖励分配规则
-    // 提供给验证者，收取节点维护费
+    // Award allocation rules
+    // Provide it to the verifier and charge the node maintenance fee
     uint256 public fee;
-    // 验证者掉线惩罚
+    // Verifier offline penalty
     uint256 public offLinePenalty;
-    // 最大比例
+    // Maximum proportion
     uint256 public max;
 
     enum Status {
@@ -165,40 +163,40 @@ contract Validators is Params {
         _;
     }
 
-    // 设置管理员地址
+    // Set administrator address
     function setManagerAddr(address addr) external onlyByManager {
         require(addr != address(0), "Don't set empty address");
         managerAddr = addr;
     }
 
-    // 设置基金会地址
+    // Setting up a foundation address
     function setFoundationAddr(address addr) external onlyByManager {
         foundationAddr = addr;
     }
-    // 设置给个分配奖励的比例(需要将比例扩大100倍)
+    // Set the proportion of rewards allocated to individuals (need to increase the proportion by 100 times)
     function setRewardDistributionRatio(uint256 _fee) external onlyByManager {
         require(_fee <= max , "The distribution ratio cannot be greater than 100%.");
         fee = _fee;
     }
 
-    // 设置掉线惩罚
+    // Set offline penalty
     function setOffLinePenalty(uint256 _offLinePenalty) external onlyByManager {
         require(_offLinePenalty<= max, "The proportion cannot exceed 100.");
         offLinePenalty = _offLinePenalty;
     }
 
 
-    // 设置质押解锁周期
+    // Set up the pledge unlocking period
     function setStakingLockPeriod(uint64 _period) external onlyByManager {
         StakingLockPeriod = _period;
     }
 
-    // 设置利息提取间隔周期
+    // Set interest withdrawal interval period
     function setWithdrawProfitPeriod(uint64 _period) external onlyByManager {
         WithdrawProfitPeriod = _period;
     }
 
-    // 设置最小质押额度
+    // Set the minimum amount of pledge
     function setMinimalStakingCoin(uint256 _coinNumber) external onlyByManager {
         MinimalStakingCoin = _coinNumber;
     }
@@ -503,13 +501,12 @@ contract Validators is Params {
         }
 
         if (bhp > 0) {
-            // 需要先将基金会奖励和质押奖励分配
-            // 基金会
+            // The Foundation Award and pledge award need to be allocated first
             address payable foundationRewardAddr = payable(foundationAddr);
             uint256 foundationReward = bhp.mul(max-fee).div(max);
             foundationRewardAddr.transfer(foundationReward);
 
-            // 剩余的为验证者节点维护费
+            // The remaining is the verifier node maintenance fee
             bhp = bhp.sub(foundationReward);
             // Jailed validator can't get profits.
             addProfitsToActiveValidatorsByStakePercentExcept(bhp, address(0));
